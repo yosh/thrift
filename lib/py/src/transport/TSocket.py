@@ -23,6 +23,8 @@ import errno
 import socket
 
 class TSocketBase(TTransportBase):
+  MAX_EINTRS = 5
+
   def _resolveAddr(self):
     if self._unix_socket is not None:
       return [(socket.AF_UNIX, socket.SOCK_STREAM, None, None, self._unix_socket)]
@@ -89,7 +91,19 @@ class TSocket(TSocketBase):
       raise TTransportException(type=TTransportException.NOT_OPEN, message=message)
 
   def read(self, sz):
-    buff = self.handle.recv(sz)
+    num_eintrs = 0
+
+    while True:
+      try:
+        buff = self.handle.recv(sz)
+        break
+      except socket.error, e:
+        eno, message = err.args
+        if eno == errno.EINTR and num_eintrs < self.MAX_EINTRS:
+          num_eintrs += 1
+        else:
+          raise
+
     if len(buff) == 0:
       raise TTransportException(type=TTransportException.END_OF_FILE, message='TSocket read 0 bytes')
     return buff
@@ -143,7 +157,19 @@ class TServerSocket(TSocketBase, TServerTransportBase):
     self.handle.listen(128)
 
   def accept(self):
-    client, addr = self.handle.accept()
+    num_eintrs = 0
+
+    while True:
+      try:
+        client, addr = self.handle.accept()
+        break
+      except socket.error, err:
+        eno, message = err.args
+        if eno == errno.EINTR and num_eintrs < self.MAX_EINTRS:
+          num_eintrs += 1
+        else:
+          raise
+
     result = TSocket()
     result.setHandle(client)
     return result
