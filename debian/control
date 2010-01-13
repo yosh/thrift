@@ -1,0 +1,151 @@
+Source: thrift
+Section: devel
+Priority: extra
+Build-Depends: debhelper (>= 5), build-essential, python-dev, ant,
+    erlang-base | erlang-base-hipe, ruby1.8-dev, autoconf, python-support, automake,
+    pkg-config, libtool, bison, flex, libboost-dev, python-all, python-all-dev,
+    ruby, sun-java6-jdk
+    libboost-test-dev, libevent-dev, perl (>= 5.8.0-7)
+Maintainer: Esteve Fernandez <esteve@fluidinfo.com>
+Standards-Version: 3.7.2
+XS-Python-Version: 2.4, 2.5
+
+Package: thrift-all
+Architecture: any
+Depends: thrift-compiler, python-thrift, libthrift-perl, libthrift-java, libthrift-erlang, libthrift-ruby,
+    libthrift0, libthrift-dev
+Description: meta-package that pulls in all thrift packages
+
+Package: thrift-compiler
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Replaces: thrift (<= 20080501~amie.2)
+Conflicts: thrift (<= 20080501~amie.2)
+Description: Compiler for Thrift definition files
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the Thrift compiler that is used for translating from
+ .thrift files (containing the definitions) to the language binding for the
+ supported languages.
+
+Package: python-thrift
+Architecture: any
+Section: python
+Depends: ${python:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Recommends: python-twisted-core
+Replaces: thrift (<= 20080501~amie.2)
+Conflicts: thrift (<= 20080501~amie.2)
+Provides: ${python:Provides}
+Description: Python bindings for Thrift
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the Python bindings for Thrift. You will need the thrift
+ tool (in the thrift-compiler package) to compile your definition to Python
+ classes, and then the modules in this package will allow you to use those
+ classes in your programs.
+
+Package: libthrift-ruby
+Architecture: any
+Section: libs
+Depends: ${shlibs:Depends}, ${misc:Depends}, ruby1.8 (>= 1.8), ruby1.8 (<< 1.9)
+Replaces: thrift (<= 20080501~amie.2)
+Description: Ruby bindings for Thrift
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the Ruby bindings for Thrift. You will need the thrift
+ tool (in the thrift-compiler package) to compile your definition to Ruby
+ classes, and then the modules in this package will allow you to use those
+ classes in your programs.
+
+Package: libthrift-java
+Architecture: all
+Section: libs
+Depends: java-gcj-compat | java1-runtime | java2-runtime, ${misc:Depends}
+Replaces: thrift (<= 20080501~amie.2)
+Conflicts: thrift (<= 20080501~amie.2)
+Recommends: libcommons-lang-java, liblog4j1.2-java
+Description: Java bindings for Thrift
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the Java bindings for Thrift. You will need the thrift
+ tool (in the thrift-compiler package) to compile your definition to Java
+ classes, and then the modules in this package will allow you to use those
+ classes in your programs.
+
+Package: libthrift-erlang
+Architecture: all
+Section: libs
+Depends: erlang-nox, ${misc:Depends}
+Description: Erlang bindings for Thrift
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the Erlang bindings for Thrift. You will need the thrift
+ tool (in the thrift-compiler package) to compile your definition to Erlang
+ classes, and then the modules in this package will allow you to use those
+ classes in your programs.
+
+Package: libthrift-perl
+Architecture: all
+Section: perl
+Depends: perl (>= 5.8.0-7), ${misc:Depends}
+Description: Perl bindings for Thrift
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the Perl bindings for Thrift. You will need the thrift
+ tool (in the thrift-compiler package) to compile your definition to Perl
+ classes, and then the modules in this package will allow you to use those
+ classes in your programs.
+
+Package: libthrift0
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Replaces: thrift (<= 20080501~amie.2)
+Conflicts: thrift (<= 20080501~amie.2)
+Description: Thrift C++ library
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the runtime libraries needed for C++ applications.
+
+Package: libthrift-dev
+Architecture: any
+Section: libdevel
+Replaces: thrift (<= 20080501~amie.2)
+Conflicts: thrift (<= 20080501~amie.2)
+Depends: ${shlibs:Depends}, ${misc:Depends}, libthrift0
+Description: Thrift C++ library (development headers)
+ Thrift is a software framework for scalable cross-language services
+ development. It combines a software stack with a code generation engine to
+ build services that work efficiently and seamlessly.
+ .
+ Thrift came out of Facebook and is now an Apache Software Foundation project.
+ .
+ This package contains the development libraries required for writing C++
+ applications.
