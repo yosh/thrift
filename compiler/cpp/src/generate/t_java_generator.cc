@@ -396,22 +396,13 @@ void t_java_generator::generate_enum(t_enum* tenum) {
   }
   f_enum << ";" << endl << endl;
 
-  indent(f_enum) << "private static final Map<Integer, "+ tenum->get_name() +
-    "> BY_VALUE = new HashMap<Integer,"+ tenum->get_name() +">() {{" << endl;
-  indent(f_enum) << "  for("+ tenum->get_name() +" val : "+ tenum->get_name() +".values()) {" << endl;
-  indent(f_enum) << "    put(val.getValue(), val);" << endl;
-  indent(f_enum) << "  }" << endl;
-  indent(f_enum) << "}};" << endl;
-
-  f_enum << endl;
-
   // Field for thriftCode
   indent(f_enum) << "private final int value;" << endl << endl;
 
   indent(f_enum) << "private " << tenum->get_name() << "(int value) {" << endl;
   indent(f_enum) << "  this.value = value;" <<endl;
   indent(f_enum) << "}" << endl << endl;
- 
+
   indent(f_enum) << "/**" << endl;
   indent(f_enum) << " * Get the integer value of this enum value, as defined in the Thrift IDL." << endl;
   indent(f_enum) << " */" << endl;
@@ -424,7 +415,34 @@ void t_java_generator::generate_enum(t_enum* tenum) {
   indent(f_enum) << " * @return null if the value is not found." << endl;
   indent(f_enum) << " */" << endl;
   indent(f_enum) << "public static "+ tenum->get_name() + " findByValue(int value) { " << endl;
-  indent(f_enum) << "  return BY_VALUE.get(value);" << endl;
+
+  indent_up();
+
+  indent(f_enum) << "switch (value) {" << endl;
+  indent_up();
+
+  value = -1;
+
+  for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
+    if ((*c_iter)->has_value()) {
+      value = (*c_iter)->get_value();
+    } else {
+      ++value;
+    }
+
+    indent(f_enum) << "case " << value << ":" << endl;
+    indent(f_enum) << "  return " << (*c_iter)->get_name() << ";" << endl;
+  }
+  
+  indent(f_enum) << "default:" << endl;
+  indent(f_enum) << "  return null;" << endl;  
+
+  indent_down();
+
+  indent(f_enum) << "}" << endl;
+  
+  indent_down();
+
   indent(f_enum) << "}" << endl;
 
   scope_down(f_enum);
@@ -1418,20 +1436,14 @@ void t_java_generator::generate_java_struct_reader(ofstream& out,
       "}" << endl;
 
     // Switch statement on the field we are reading
-    indent(out) << "_Fields fieldId = _Fields.findByThriftId(field.id);" << endl;
-    indent(out) << "if (fieldId == null) {" << endl;
-    indent(out) << "  TProtocolUtil.skip(iprot, field.type);" << endl;
-    indent(out) << "} else {" << endl;
-    indent_up();
-
-    indent(out) << "switch (fieldId) {" << endl;
+    indent(out) << "switch (field.id) {" << endl;
 
     indent_up();
 
     // Generate deserialization code for known cases
     for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
       indent(out) <<
-        "case " << constant_name((*f_iter)->get_name()) << ":" << endl;
+        "case " << (*f_iter)->get_key() << ": // " << constant_name((*f_iter)->get_name()) << endl;
       indent_up();
       indent(out) <<
         "if (field.type == " << type_to_enum((*f_iter)->get_type()) << ") {" << endl;
@@ -1448,14 +1460,15 @@ void t_java_generator::generate_java_struct_reader(ofstream& out,
       indent_down();
     }
 
+    indent(out) << "default:" << endl;
+    indent(out) << "  TProtocolUtil.skip(iprot, field.type);" << endl;
+
     indent_down();
     indent(out) << "}" << endl;
 
     // Read field end marker
     indent(out) <<
       "iprot.readFieldEnd();" << endl;
-
-    scope_down(out);
 
     indent_down();
     indent(out) << "}" << endl;
