@@ -1,3 +1,9 @@
+thrift (0.2010.01.19~rdio.1) karmic; urgency=low
+
+  * Don't pass --no-compile to setup.py --install
+
+ -- Manish Singh <manish@rd.io>  Tue, 19 Jan 2010 14:38:04 -0800
+
 thrift (0.2010.01.18~rdio.1) karmic; urgency=low
 
   * First rev of rdio packaging

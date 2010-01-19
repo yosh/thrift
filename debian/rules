@@ -129,7 +129,7 @@ install-arch:
 	#python
 	cd $(CURDIR)/lib/py && \
 	for py in $(PYVERS); do \
-		$$py setup.py install --no-compile --prefix=/opt/rdio --root=$(CURDIR)/debian/python-thrift; \
+		$$py setup.py install --prefix=/opt/rdio --root=$(CURDIR)/debian/python-thrift; \
 	done
 
 	#ruby
