@@ -1,3 +1,9 @@
+thrift (0.2010.01.18~rdio.1) karmic; urgency=low
+
+  * First rev of rdio packaging
+
+ -- Manish Singh <manish@rd.io>  Mon, 18 Jan 2010 19:30:14 -0800
+
 thrift (0.2009.04.29~cloudera.1) intrepid; urgency=low
 
   * Update to f08c0a34dc461034b2374bdd5fe6c8706c658f26
