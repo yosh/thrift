@@ -23,7 +23,7 @@ configure-stamp:
 	dh_testdir
 	# Add here commands to configure the package.
 	$(CURDIR)/bootstrap.sh
-	$(CURDIR)/configure --prefix=/usr --without-csharp
+	$(CURDIR)/configure --prefix=/opt/rdio --without-csharp
 
 	touch configure-stamp
 
@@ -95,19 +95,19 @@ install-indep:
 	#INSTALLDOC#
 
     # Java
-	mkdir -p $(CURDIR)/debian/libthrift-java/usr/share/java/ && \
+	mkdir -p $(CURDIR)/debian/libthrift-java/opt/rdio/share/java/ && \
 	cp $(CURDIR)/lib/java/libthrift.jar \
-		$(CURDIR)/debian/libthrift-java/usr/share/java/
+		$(CURDIR)/debian/libthrift-java/opt/rdio/share/java/
 
 	# Erlang
-	mkdir -p $(CURDIR)/debian/libthrift-erlang/usr/lib/erlang/lib/thrift/ && \
+	mkdir -p $(CURDIR)/debian/libthrift-erlang/opt/rdio/lib/erlang/lib/thrift/ && \
 	cp -r $(CURDIR)/lib/erl/ebin \
 		$(CURDIR)/lib/erl/include \
 		$(CURDIR)/lib/erl/src \
-		$(CURDIR)/debian/libthrift-erlang/usr/lib/erlang/lib/thrift/
+		$(CURDIR)/debian/libthrift-erlang/opt/rdio/lib/erlang/lib/thrift/
 
 	# Perl
-	$(MAKE) -C $(CURDIR)/lib/perl install PREFIX=$(CURDIR)/debian/libthrift-perl/usr
+	$(MAKE) -C $(CURDIR)/lib/perl install PREFIX=$(CURDIR)/debian/libthrift-perl/opt/rdio
 
 	dh_install -i
 
@@ -122,14 +122,14 @@ install-arch:
 	#$(MAKE) DESTDIR=$(CURDIR)/debian/thrift install
 
 	#compiler
-	mkdir -p $(CURDIR)/debian/thrift-compiler/usr/bin && \
+	mkdir -p $(CURDIR)/debian/thrift-compiler/opt/rdio/bin && \
 	cp $(CURDIR)/compiler/cpp/thrift \
-		$(CURDIR)/debian/thrift-compiler/usr/bin/thrift
+		$(CURDIR)/debian/thrift-compiler/opt/rdio/bin/thrift
 
 	#python
 	cd $(CURDIR)/lib/py && \
 	for py in $(PYVERS); do \
-		$$py setup.py install --no-compile --root=$(CURDIR)/debian/python-thrift; \
+		$$py setup.py install --no-compile --prefix=/opt/rdio --root=$(CURDIR)/debian/python-thrift; \
 	done
 
 	#ruby
@@ -151,15 +151,15 @@ install-arch:
 binary-common:
 	dh_testdir
 	dh_testroot
-	dh_installchangelogs
-	dh_installdocs
-	dh_installexamples
-	dh_installman
+	#dh_installchangelogs
+	#dh_installdocs
+	#dh_installexamples
+	#dh_installman
 	dh_link
 	dh_strip -Nthrift-compiler -Nlibthrift0 -Nlibthrift-ruby 
 	dh_compress
 	dh_fixperms
-	dh_pysupport
+	#dh_pysupport
 	dh_makeshlibs
 	dh_installdeb
 	dh_perl

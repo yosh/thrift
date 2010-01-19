@@ -1,4 +1,4 @@
-usr/lib/*.a
-usr/lib/*.la
-usr/lib/pkgconfig
-usr/include
+opt/rdio/lib/*.a
+opt/rdio/lib/*.la
+opt/rdio/lib/pkgconfig
+opt/rdio/include
