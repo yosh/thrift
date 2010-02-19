@@ -29,6 +29,10 @@ module Thrift
           name, value = name.keys.first, name.values.first
         end
 
+        if Thrift.type_checking
+          raise Exception, "#{self.class} does not contain a field named #{name}!" unless name_to_id(name.to_s)
+        end
+
         if value.nil?
           raise Exception, "Union #{self.class} cannot be instantiated with setfield and nil value!"
         end
@@ -42,7 +46,11 @@ module Thrift
     end
 
     def inspect
-      "<#{self.class} #{@setfield}: #{@value}>"
+      if get_set_field
+        "<#{self.class} #{@setfield}: #{inspect_field(@value, struct_fields[name_to_id(@setfield.to_s)])}>"
+      else
+        "<#{self.class} >"
+      end
     end
 
     def read(iprot)
@@ -90,21 +98,32 @@ module Thrift
       [self.class.name, @setfield, @value].hash
     end
 
-    def self.field_accessor(klass, *fields)
-      fields.each do |field|
-        klass.send :define_method, "#{field}" do
-          if field == @setfield
-            @value
-          else 
-            raise RuntimeError, "#{field} is not union's set field."
-          end
+    def self.field_accessor(klass, field_info)
+      klass.send :define_method, field_info[:name] do
+        if field_info[:name].to_sym == @setfield
+          @value
+        else 
+          raise RuntimeError, "#{field_info[:name]} is not union's set field."
         end
+      end
 
-        klass.send :define_method, "#{field}=" do |value|
-          Thrift.check_type(value, klass::FIELDS.values.find {|f| f[:name].to_s == field.to_s }, field) if Thrift.type_checking
-          @setfield = field
-          @value = value
-        end
+      klass.send :define_method, "#{field_info[:name]}=" do |value|
+        Thrift.check_type(value, field_info, field_info[:name]) if Thrift.type_checking
+        @setfield = field_info[:name].to_sym
+        @value = value
+      end
+    end
+
+    def self.qmark_isset_method(klass, field_info)
+      klass.send :define_method, "#{field_info[:name]}?" do
+        get_set_field == field_info[:name].to_sym && !get_value.nil?
+      end
+    end
+
+    def self.generate_accessors(klass)
+      klass::FIELDS.values.each do |field_info|
+        field_accessor(klass, field_info)
+        qmark_isset_method(klass, field_info)
       end
     end
 
@@ -118,6 +137,30 @@ module Thrift
     # what field to expect.
     def get_value
       @value
+    end
+
+    def <=>(other)
+      if self.class == other.class
+        if get_set_field == other.get_set_field
+          if get_set_field.nil?
+            0
+          else
+            get_value <=> other.get_value
+          end
+        else
+          if get_set_field && other.get_set_field.nil?
+            -1
+          elsif get_set_field.nil? && other.get_set_field
+            1
+          elsif get_set_field.nil? && other.get_set_field.nil?
+            0
+          else
+            name_to_id(get_set_field.to_s) <=> name_to_id(other.get_set_field.to_s)
+          end
+        end
+      else
+        self.class <=> other.class
+      end
     end
 
     protected

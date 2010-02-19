@@ -72,7 +72,7 @@ module Thrift
         name = field_info[:name]
         value = instance_variable_get("@#{name}")
         unless skip_optional_nulls && field_info[:optional] && value.nil?
-          fields << "#{name}:#{value.inspect}"
+          fields << "#{name}:#{inspect_field(value, field_info)}"
         end
       end
       "<#{self.class} #{fields.join(", ")}>"
@@ -145,13 +145,49 @@ module Thrift
       diffs
     end
 
-    def self.field_accessor(klass, *fields)
-      fields.each do |field|
-        klass.send :attr_reader, field
-        klass.send :define_method, "#{field}=" do |value|
-          Thrift.check_type(value, klass::FIELDS.values.find { |f| f[:name].to_s == field.to_s }, field) if Thrift.type_checking
-          instance_variable_set("@#{field}", value)
+    def self.field_accessor(klass, field_info)
+      field_name_sym = field_info[:name].to_sym
+      klass.send :attr_reader, field_name_sym
+      klass.send :define_method, "#{field_info[:name]}=" do |value|
+        Thrift.check_type(value, field_info, field_info[:name]) if Thrift.type_checking
+        instance_variable_set("@#{field_name_sym}", value)
+      end
+    end
+
+    def self.generate_accessors(klass)
+      klass::FIELDS.values.each do |field_info|
+        field_accessor(klass, field_info)
+        qmark_isset_method(klass, field_info)
+      end
+    end
+
+    def self.qmark_isset_method(klass, field_info)
+      klass.send :define_method, "#{field_info[:name]}?" do
+        !self.send(field_info[:name].to_sym).nil?
+      end
+    end
+
+    def <=>(other)
+      if self.class == other.class
+        each_field do |fid, field_info|
+          v1 = self.send(field_info[:name])
+          v1_set = !v1.nil?
+          v2 = other.send(field_info[:name])
+          v2_set = !v2.nil?
+          if v1_set && !v2_set
+            return -1
+          elsif !v1_set && v2_set
+            return 1
+          elsif v1_set && v2_set
+            cmp = v1 <=> v2
+            if cmp != 0
+              return cmp
+            end
+          end
         end
+        0
+      else
+        self.class <=> other.class
       end
     end
 
