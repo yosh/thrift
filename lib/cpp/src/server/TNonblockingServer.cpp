@@ -19,6 +19,7 @@
 
 #include "TNonblockingServer.h"
 #include <concurrency/Exception.h>
+#include <transport/TSocket.h>
 
 #include <iostream>
 #include <sys/socket.h>
@@ -39,17 +40,19 @@ using namespace apache::thrift::protocol;
 using namespace apache::thrift::transport;
 using namespace apache::thrift::concurrency;
 using namespace std;
+using apache::thrift::transport::TSocket;
+using apache::thrift::transport::TTransportException;
 
 class TConnection::Task: public Runnable {
  public:
   Task(boost::shared_ptr<TProcessor> processor,
        boost::shared_ptr<TProtocol> input,
        boost::shared_ptr<TProtocol> output,
-       int taskHandle) :
+       TConnection* connection) :
     processor_(processor),
     input_(input),
     output_(output),
-    taskHandle_(taskHandle) {}
+    connection_(connection) {}
 
   void run() {
     try {
@@ -62,25 +65,28 @@ class TConnection::Task: public Runnable {
       cerr << "TNonblockingServer client died: " << ttx.what() << endl;
     } catch (TException& x) {
       cerr << "TNonblockingServer exception: " << x.what() << endl;
+    } catch (bad_alloc&) {
+      cerr << "TNonblockingServer caught bad_alloc exception.";
+      exit(-1);
     } catch (...) {
       cerr << "TNonblockingServer uncaught exception." << endl;
     }
 
-    // Signal completion back to the libevent thread via a socketpair
-    int8_t b = 0;
-    if (-1 == send(taskHandle_, &b, sizeof(int8_t), 0)) {
-      GlobalOutput.perror("TNonblockingServer::Task: send ", errno);
+    // Signal completion back to the libevent thread via a pipe
+    if (!connection_->notifyServer()) {
+      throw TException("TNonblockingServer::Task::run: failed write on notify pipe");
     }
-    if (-1 == ::close(taskHandle_)) {
-      GlobalOutput.perror("TNonblockingServer::Task: close, possible resource leak ", errno);
-    }
+  }
+
+  TConnection* getTConnection() {
+    return connection_;
   }
 
  private:
   boost::shared_ptr<TProcessor> processor_;
   boost::shared_ptr<TProtocol> input_;
   boost::shared_ptr<TProtocol> output_;
-  int taskHandle_;
+  TConnection* connection_;
 };
 
 void TConnection::init(int socket, short eventFlags, TNonblockingServer* s) {
@@ -98,8 +104,6 @@ void TConnection::init(int socket, short eventFlags, TNonblockingServer* s) {
 
   socketState_ = SOCKET_RECV;
   appState_ = APP_INIT;
-
-  taskHandle_ = -1;
 
   // Set flags, which also registers the event
   setFlags(eventFlags);
@@ -124,15 +128,18 @@ void TConnection::workSocket() {
 
     // Double the buffer size until it is big enough
     if (readWant_ > readBufferSize_) {
-      while (readWant_ > readBufferSize_) {
-        readBufferSize_ *= 2;
+      uint32_t newSize = readBufferSize_;
+      while (readWant_ > newSize) {
+        newSize *= 2;
       }
-      readBuffer_ = (uint8_t*)std::realloc(readBuffer_, readBufferSize_);
-      if (readBuffer_ == NULL) {
+      uint8_t* newBuffer = (uint8_t*)std::realloc(readBuffer_, newSize);
+      if (newBuffer == NULL) {
         GlobalOutput("TConnection::workSocket() realloc");
         close();
         return;
       }
+      readBuffer_ = newBuffer;
+      readBufferSize_ = newSize;
     }
 
     // Read from the socket
@@ -256,37 +263,20 @@ void TConnection::transition() {
     outputTransport_->getWritePtr(4);
     outputTransport_->wroteBytes(4);
 
+    server_->incrementActiveProcessors();
+
     if (server_->isThreadPoolProcessing()) {
       // We are setting up a Task to do this work and we will wait on it
-      int sv[2];
-      if (-1 == socketpair(AF_LOCAL, SOCK_STREAM, 0, sv)) {
-        GlobalOutput.perror("TConnection::socketpair() failed ", errno);
-        // Now we will fall through to the APP_WAIT_TASK block with no response
-      } else {
-        // Create task and dispatch to the thread manager
-        boost::shared_ptr<Runnable> task =
-          boost::shared_ptr<Runnable>(new Task(server_->getProcessor(),
-                                               inputProtocol_,
-                                               outputProtocol_,
-                                               sv[1]));
-        // The application is now waiting on the task to finish
-        appState_ = APP_WAIT_TASK;
 
-        // Create an event to be notified when the task finishes
-        event_set(&taskEvent_,
-                  taskHandle_ = sv[0],
-                  EV_READ,
-                  TConnection::taskHandler,
-                  this);
+      // Create task and dispatch to the thread manager
+      boost::shared_ptr<Runnable> task =
+        boost::shared_ptr<Runnable>(new Task(server_->getProcessor(),
+                                             inputProtocol_,
+                                             outputProtocol_,
+                                             this));
+      // The application is now waiting on the task to finish
+      appState_ = APP_WAIT_TASK;
 
-        // Attach to the base
-        event_base_set(server_->getEventBase(), &taskEvent_);
-
-        // Add the event and start up the server
-        if (-1 == event_add(&taskEvent_, 0)) {
-          GlobalOutput("TNonblockingServer::serve(): coult not event_add");
-          return;
-        }
         try {
           server_->addTask(task);
         } catch (IllegalStateException & ise) {
@@ -295,26 +285,28 @@ void TConnection::transition() {
           close();
         }
 
-        // Set this connection idle so that libevent doesn't process more
-        // data on it while we're still waiting for the threadmanager to
-        // finish this task
-        setIdle();
-        return;
-      }
+      // Set this connection idle so that libevent doesn't process more
+      // data on it while we're still waiting for the threadmanager to
+      // finish this task
+      setIdle();
+      return;
     } else {
       try {
         // Invoke the processor
         server_->getProcessor()->process(inputProtocol_, outputProtocol_);
       } catch (TTransportException &ttx) {
         GlobalOutput.printf("TTransportException: Server::process() %s", ttx.what());
+        server_->decrementActiveProcessors();
         close();
         return;
       } catch (TException &x) {
         GlobalOutput.printf("TException: Server::process() %s", x.what());
+        server_->decrementActiveProcessors();
         close();
         return;
       } catch (...) {
         GlobalOutput.printf("Server::process() unknown exception");
+        server_->decrementActiveProcessors();
         close();
         return;
       }
@@ -328,6 +320,7 @@ void TConnection::transition() {
     // into the outputTransport_, so we grab its contents and place them into
     // the writeBuffer_ for actual writing by the libevent thread
 
+    server_->decrementActiveProcessors();
     // Get the result of the operation
     outputTransport_->getBuffer(&writeBuffer_, &writeBufferSize_);
 
@@ -425,6 +418,11 @@ void TConnection::transition() {
 
     return;
 
+  case APP_CLOSE_CONNECTION:
+    server_->decrementActiveProcessors();
+    close();
+    return;
+
   default:
     GlobalOutput.printf("Unexpected Application State %d", appState_);
     assert(0);
@@ -453,7 +451,7 @@ void TConnection::setFlags(short eventFlags) {
     return;
   }
 
-  /**
+  /*
    * event_set:
    *
    * Prepares the event structure &event to be used in future calls to
@@ -499,10 +497,10 @@ void TConnection::close() {
   }
 
   // Close the socket
-  if (socket_ > 0) {
+  if (socket_ >= 0) {
     ::close(socket_);
   }
-  socket_ = 0;
+  socket_ = -1;
 
   // close any factory produced transports
   factoryInputTransport_->close();
@@ -512,7 +510,7 @@ void TConnection::close() {
   server_->returnConnection(this);
 }
 
-void TConnection::checkIdleBufferMemLimit(uint32_t limit) {
+void TConnection::checkIdleBufferMemLimit(size_t limit) {
   if (readBufferSize_ > limit) {
     readBufferSize_ = limit;
     readBuffer_ = (uint8_t*)std::realloc(readBuffer_, readBufferSize_);
@@ -572,7 +570,21 @@ void TNonblockingServer::handleEvent(int fd, short which) {
   // one, this helps us to avoid having to go back into the libevent engine so
   // many times
   while ((clientSocket = accept(fd, &addr, &addrLen)) != -1) {
-
+    // If we're overloaded, take action here
+    if (overloadAction_ != T_OVERLOAD_NO_ACTION && serverOverloaded()) {
+      nConnectionsDropped_++;
+      nTotalConnectionsDropped_++;
+      if (overloadAction_ == T_OVERLOAD_CLOSE_ON_ACCEPT) {
+        close(clientSocket);
+        return;
+      } else if (overloadAction_ == T_OVERLOAD_DRAIN_TASK_QUEUE) {
+        if (!drainPendingTask()) {
+          // Nothing left to discard, so we drop connection instead.
+          close(clientSocket);
+          return;
+        }
+      }
+    }
     // Explicitly set this socket to NONBLOCK mode
     int flags;
     if ((flags = fcntl(clientSocket, F_GETFL, 0)) < 0 ||
@@ -645,9 +657,11 @@ void TNonblockingServer::listenSocket() {
   }
 
   #ifdef IPV6_V6ONLY
-  int zero = 0;
-  if (-1 == setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof(zero))) {
-    GlobalOutput("TServerSocket::listen() IPV6_V6ONLY");
+  if (res->ai_family == AF_INET6) {
+    int zero = 0;
+    if (-1 == setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof(zero))) {
+      GlobalOutput("TServerSocket::listen() IPV6_V6ONLY");
+    }
   }
   #endif // #ifdef IPV6_V6ONLY
 
@@ -698,6 +712,12 @@ void TNonblockingServer::listenSocket(int s) {
   setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
   #endif
 
+  #ifdef TCP_LOW_MIN_RTO
+  if (TSocket::getUseLowMinRto()) {
+    setsockopt(s, IPPROTO_TCP, TCP_LOW_MIN_RTO, &one, sizeof(one));
+  }
+  #endif
+
   if (listen(s, LISTEN_BACKLOG) == -1) {
     close(s);
     throw TException("TNonblockingServer::serve() listen");
@@ -705,6 +725,20 @@ void TNonblockingServer::listenSocket(int s) {
 
   // Cool, this socket is good to go, set it as the serverSocket_
   serverSocket_ = s;
+}
+
+void TNonblockingServer::createNotificationPipe() {
+  if (pipe(notificationPipeFDs_) != 0) {
+    GlobalOutput.perror("TNonblockingServer::createNotificationPipe ", errno);
+      throw TException("can't create notification pipe");
+  }
+  int flags;
+  if ((flags = fcntl(notificationPipeFDs_[0], F_GETFL, 0)) < 0 ||
+      fcntl(notificationPipeFDs_[0], F_SETFL, flags | O_NONBLOCK) < 0) {
+    close(notificationPipeFDs_[0]);
+    close(notificationPipeFDs_[1]);
+    throw TException("TNonblockingServer::createNotificationPipe() O_NONBLOCK");
+  }
 }
 
 /**
@@ -732,6 +766,77 @@ void TNonblockingServer::registerEvents(event_base* base) {
   if (-1 == event_add(&serverEvent_, 0)) {
     throw TException("TNonblockingServer::serve(): coult not event_add");
   }
+  if (threadPoolProcessing_) {
+    // Create an event to be notified when a task finishes
+    event_set(&notificationEvent_,
+              getNotificationRecvFD(),
+              EV_READ | EV_PERSIST,
+              TConnection::taskHandler,
+              this);
+
+    // Attach to the base
+    event_base_set(eventBase_, &notificationEvent_);
+
+    // Add the event and start up the server
+    if (-1 == event_add(&notificationEvent_, 0)) {
+      throw TException("TNonblockingServer::serve(): notification event_add fail");
+    }
+  }
+}
+
+void TNonblockingServer::setThreadManager(boost::shared_ptr<ThreadManager> threadManager) {
+  threadManager_ = threadManager;
+  if (threadManager != NULL) {
+    threadManager->setExpireCallback(std::tr1::bind(&TNonblockingServer::expireClose, this, std::tr1::placeholders::_1));
+    threadPoolProcessing_ = true;
+  } else {
+    threadPoolProcessing_ = false;
+  }
+}
+
+bool  TNonblockingServer::serverOverloaded() {
+  size_t activeConnections = numTConnections_ - connectionStack_.size();
+  if (numActiveProcessors_ > maxActiveProcessors_ ||
+      activeConnections > maxConnections_) {
+    if (!overloaded_) {
+      GlobalOutput.printf("thrift non-blocking server overload condition");
+      overloaded_ = true;
+    }
+  } else {
+    if (overloaded_ &&
+        (numActiveProcessors_ <= overloadHysteresis_ * maxActiveProcessors_) &&
+        (activeConnections <= overloadHysteresis_ * maxConnections_)) {
+      GlobalOutput.printf("thrift non-blocking server overload ended; %u dropped (%llu total)",
+                          nConnectionsDropped_, nTotalConnectionsDropped_);
+      nConnectionsDropped_ = 0;
+      overloaded_ = false;
+    }
+  }
+
+  return overloaded_;
+}
+
+bool TNonblockingServer::drainPendingTask() {
+  if (threadManager_) {
+    boost::shared_ptr<Runnable> task = threadManager_->removeNextPending();
+    if (task) {
+      TConnection* connection =
+        static_cast<TConnection::Task*>(task.get())->getTConnection();
+      assert(connection && connection->getServer()
+             && connection->getState() == APP_WAIT_TASK);
+      connection->forceClose();
+      return true;
+    }
+  }
+  return false;
+}
+
+void TNonblockingServer::expireClose(boost::shared_ptr<Runnable> task) {
+  TConnection* connection =
+    static_cast<TConnection::Task*>(task.get())->getTConnection();
+  assert(connection && connection->getServer()
+	 && connection->getState() == APP_WAIT_TASK);
+  connection->forceClose();
 }
 
 /**
@@ -741,6 +846,11 @@ void TNonblockingServer::registerEvents(event_base* base) {
 void TNonblockingServer::serve() {
   // Init socket
   listenSocket();
+
+  if (threadPoolProcessing_) {
+    // Init task completion notification pipe
+    createNotificationPipe();
+  }
 
   // Initialize libevent core
   registerEvents(static_cast<event_base*>(event_init()));

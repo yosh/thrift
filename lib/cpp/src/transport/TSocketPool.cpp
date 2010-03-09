@@ -125,6 +125,12 @@ void TSocketPool::addServer(const string& host, int port) {
   servers_.push_back(shared_ptr<TSocketPoolServer>(new TSocketPoolServer(host, port)));
 }
 
+void TSocketPool::addServer(shared_ptr<TSocketPoolServer> &server) {
+  if (server) {
+    servers_.push_back(server);
+  }
+}
+
 void TSocketPool::setServers(const vector< shared_ptr<TSocketPoolServer> >& servers) {
   servers_ = servers;
 }
@@ -161,19 +167,30 @@ void TSocketPool::setCurrentServer(const shared_ptr<TSocketPoolServer> &server) 
   socket_ = server->socket_;
 }
 
+/**
+ * This function throws an exception if socket open fails. When socket
+ * opens fails, the socket in the current server is reset.
+ */
 /* TODO: without apc we ignore a lot of functionality from the php version */
 void TSocketPool::open() {
-  if (randomize_) {
+
+  unsigned int numServers = servers_.size();
+  if (numServers == 0) {
+    socket_ = -1;
+    throw TTransportException(TTransportException::NOT_OPEN);
+  }
+
+  if (isOpen()) {
+    return;
+  }
+
+  if (randomize_ && numServers > 1) {
     random_shuffle(servers_.begin(), servers_.end());
   }
 
-  unsigned int numServers = servers_.size();
   for (unsigned int i = 0; i < numServers; ++i) {
 
     shared_ptr<TSocketPoolServer> &server = servers_[i];
-    bool retryIntervalPassed = (server->lastFailTime_ == 0);
-    bool isLastServer = alwaysTryLast_ ? (i == (numServers - 1)) : false;
-
     // Impersonate the server socket
     setCurrentServer(server);
 
@@ -181,6 +198,9 @@ void TSocketPool::open() {
       // already open means we're done
       return;
     }
+
+    bool retryIntervalPassed = (server->lastFailTime_ == 0);
+    bool isLastServer = alwaysTryLast_ ? (i == (numServers - 1)) : false;
 
     if (server->lastFailTime_ > 0) {
       // The server was marked as down, so check if enough time has elapsed to retry
@@ -194,22 +214,19 @@ void TSocketPool::open() {
       for (int j = 0; j < numRetries_; ++j) {
         try {
           TSocket::open();
-
-          // Copy over the opened socket so that we can keep it persistent
-          server->socket_ = socket_;
-
-          // reset lastFailTime_ is required
-          if (server->lastFailTime_) {
-            server->lastFailTime_ = 0;
-          }
-
-          // success
-          return;
         } catch (TException e) {
           string errStr = "TSocketPool::open failed "+getSocketInfo()+": "+e.what();
           GlobalOutput(errStr.c_str());
-          // connection failed
+          socket_ = -1;
+          continue;
         }
+
+        // Copy over the opened socket so that we can keep it persistent
+        server->socket_ = socket_;
+        // reset lastFailTime_ is required
+        server->lastFailTime_ = 0;
+        // success
+        return;
       }
 
       ++server->consecutiveFailures_;
@@ -226,8 +243,8 @@ void TSocketPool::open() {
 }
 
 void TSocketPool::close() {
-  if (isOpen()) {
-    TSocket::close();
+  TSocket::close();
+  if (currentServer_) {
     currentServer_->socket_ = -1;
   }
 }

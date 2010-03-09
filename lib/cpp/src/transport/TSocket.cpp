@@ -153,6 +153,15 @@ void TSocket::openConnection(struct addrinfo *res) {
   // No delay
   setNoDelay(noDelay_);
 
+  // Uses a low min RTO if asked to.
+#ifdef TCP_LOW_MIN_RTO
+  if (getUseLowMinRto()) {
+    int one = 1;
+    setsockopt(socket_, IPPROTO_TCP, TCP_LOW_MIN_RTO, &one, sizeof(one));
+  }
+#endif
+
+
   // Set the socket to be non blocking for connect if a timeout exists
   int flags = fcntl(socket_, F_GETFL, 0);
   if (connTimeout_ > 0) {
@@ -230,7 +239,7 @@ void TSocket::open() {
   }
 
   // Validate port number
-  if (port_ < 0 || port_ > 65536) {
+  if (port_ < 0 || port_ > 0xFFFF) {
     throw TTransportException(TTransportException::NOT_OPEN, "Specified port is invalid");
   }
 
@@ -238,7 +247,7 @@ void TSocket::open() {
   res = NULL;
   res0 = NULL;
   int error;
-  char port[sizeof("65536")];
+  char port[sizeof("65535")];
   std::memset(&hints, 0, sizeof(hints));
   hints.ai_family = PF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
@@ -308,16 +317,17 @@ uint32_t TSocket::read(uint8_t* buf, uint32_t len) {
   gettimeofday(&begin, NULL);
   int got = recv(socket_, buf, len, 0);
   int errno_copy = errno; //gettimeofday can change errno
-  struct timeval end;
-  gettimeofday(&end, NULL);
-  uint32_t readElapsedMicros =  (((end.tv_sec - begin.tv_sec) * 1000 * 1000)
-                                 + (((uint64_t)(end.tv_usec - begin.tv_usec))));
   ++g_socket_syscalls;
 
   // Check for error on read
   if (got < 0) {
     if (errno_copy == EAGAIN) {
       // check if this is the lack of resources or timeout case
+      struct timeval end;
+      gettimeofday(&end, NULL);
+      uint32_t readElapsedMicros =  (((end.tv_sec - begin.tv_sec) * 1000 * 1000)
+                                     + (((uint64_t)(end.tv_usec - begin.tv_usec))));
+
       if (!eagainThresholdMicros || (readElapsedMicros < eagainThresholdMicros)) {
         if (retries++ < maxRecvRetries_) {
           usleep(50);
@@ -586,6 +596,14 @@ std::string TSocket::getPeerAddress() {
 int TSocket::getPeerPort() {
   getPeerAddress();
   return peerPort_;
+}
+
+bool TSocket::useLowMinRto_ = false;
+void TSocket::setUseLowMinRto(bool useLowMinRto) {
+  useLowMinRto_ = useLowMinRto;
+}
+bool TSocket::getUseLowMinRto() {
+  return useLowMinRto_;
 }
 
 }}} // apache::thrift::transport

@@ -24,6 +24,32 @@
 
 namespace apache { namespace thrift { namespace concurrency {
 
+#ifndef THRIFT_NO_CONTENTION_PROFILING
+
+/**
+ * Determines if the Thrift Mutex and ReadWriteMutex classes will attempt to
+ * profile their blocking acquire methods. If this value is set to non-zero,
+ * Thrift will attempt to invoke the callback once every profilingSampleRate
+ * times.  However, as the sampling is not synchronized the rate is not
+ * guranateed, and could be subject to big bursts and swings.  Please ensure
+ * your sampling callback is as performant as your application requires.
+ *
+ * The callback will get called with the wait time taken to lock the mutex in
+ * usec and a (void*) that uniquely identifies the Mutex (or ReadWriteMutex)
+ * being locked.
+ *
+ * The enableMutexProfiling() function is unsynchronized; calling this function
+ * while profiling is already enabled may result in race conditions.  On
+ * architectures where a pointer assignment is atomic, this is safe but there
+ * is no guarantee threads will agree on a single callback within any
+ * particular time period.
+ */
+typedef void (*MutexWaitCallback)(const void* id, int64_t waitTimeMicros);
+void enableMutexProfiling(int32_t profilingSampleRate,
+                          MutexWaitCallback callback);
+
+#endif
+
 /**
  * A simple mutex class
  *
@@ -37,7 +63,10 @@ class Mutex {
   virtual ~Mutex() {}
   virtual void lock() const;
   virtual bool trylock() const;
+  virtual bool timedlock(int64_t milliseconds) const;
   virtual void unlock() const;
+
+  void* getUnderlyingImpl() const;
 
   static void DEFAULT_INITIALIZER(void*);
   static void ADAPTIVE_INITIALIZER(void*);
@@ -73,21 +102,55 @@ private:
 
 class Guard {
  public:
-  Guard(const Mutex& value) : mutex_(value) {
-    mutex_.lock();
+  Guard(const Mutex& value, int64_t timeout = 0) : mutex_(&value) {
+    if (timeout == 0) {
+      value.lock();
+    } else if (timeout < 0) {
+      if (!value.trylock()) {
+        mutex_ = NULL;
+      }
+    } else {
+      if (!value.timedlock(timeout)) {
+        mutex_ = NULL;
+      }
+    }
   }
   ~Guard() {
-    mutex_.unlock();
+    if (mutex_) {
+      mutex_->unlock();
+    }
+  }
+
+  operator bool() const {
+    return (mutex_ != NULL);
   }
 
  private:
-  const Mutex& mutex_;
+  const Mutex* mutex_;
 };
+
+// Can be used as second argument to RWGuard to make code more readable
+// as to whether we're doing acquireRead() or acquireWrite().
+enum RWGuardType {
+  RW_READ = 0,
+  RW_WRITE = 1,
+};
+
 
 class RWGuard {
   public:
-    RWGuard(const ReadWriteMutex& value, bool write = 0) : rw_mutex_(value) {
+    RWGuard(const ReadWriteMutex& value, bool write = false)
+         : rw_mutex_(value) {
       if (write) {
+        rw_mutex_.acquireWrite();
+      } else {
+        rw_mutex_.acquireRead();
+      }
+    }
+
+    RWGuard(const ReadWriteMutex& value, RWGuardType type)
+         : rw_mutex_(value) {
+      if (type == RW_WRITE) {
         rw_mutex_.acquireWrite();
       } else {
         rw_mutex_.acquireRead();

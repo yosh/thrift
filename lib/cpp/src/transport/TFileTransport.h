@@ -29,6 +29,7 @@
 
 #include <pthread.h>
 
+#include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 
 namespace apache { namespace thrift { namespace transport {
@@ -180,6 +181,7 @@ class TFileTransport : public TFileReaderTransport,
 
   uint32_t readAll(uint8_t* buf, uint32_t len);
   uint32_t read(uint8_t* buf, uint32_t len);
+  bool peek();
 
   // log-file specific functions
   void seekToChunk(int32_t chunk);
@@ -337,6 +339,10 @@ class TFileTransport : public TFileReaderTransport,
   // sleep duration when a corrupted event is encountered
   uint32_t corruptedEventSleepTime_;
   static const uint32_t DEFAULT_CORRUPTED_SLEEP_TIME_US = 1 * 1000 * 1000;
+
+  // sleep duration in seconds when an IO error is encountered in the writer thread
+  uint32_t writerThreadIOErrorSleepTime_;
+  static const uint32_t DEFAULT_WRITER_THREAD_SLEEP_TIME_US = 60 * 1000 * 1000;
 
   // writer thread id
   pthread_t writerThreadId_;
