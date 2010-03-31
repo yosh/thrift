@@ -16,22 +16,36 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+package org.apache.thrift.transport;
 
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.TTransportException;
 
-package org.apache.thrift.test;
+public class WriteCountingTransport extends TTransport {
+  public int writeCount = 0;
+  private final TTransport trans;
 
-import org.apache.thrift.protocol.TCompactProtocol;
-import org.apache.thrift.protocol.TProtocolFactory;
-
-public class TCompactProtocolTest extends ProtocolTestBase {
-  
-  public static void main(String[] args) throws Exception {
-    new TCompactProtocolTest().main();
+  public WriteCountingTransport(TTransport underlying) {
+    trans = underlying;
   }
 
-  
   @Override
-  protected TProtocolFactory getFactory() {
-    return new TCompactProtocol.Factory();
+  public void close() {}
+
+  @Override
+  public boolean isOpen() {return true;}
+
+  @Override
+  public void open() throws TTransportException {}
+
+  @Override
+  public int read(byte[] buf, int off, int len) throws TTransportException {
+    return 0;
+  }
+
+  @Override
+  public void write(byte[] buf, int off, int len) throws TTransportException {
+    writeCount ++;
+    trans.write(buf, off, len);
   }
 }

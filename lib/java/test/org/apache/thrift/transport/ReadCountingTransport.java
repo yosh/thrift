@@ -16,42 +16,34 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+package org.apache.thrift.transport;
 
-package org.apache.thrift.protocol;
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.TTransportException;
 
-/**
- * Helper class that encapsulates struct metadata.
- *
- */
-public final class TMessage {
-  public TMessage() {
-    this("", TType.STOP, 0);
-  }
+public class ReadCountingTransport extends TTransport {
+  public int readCount = 0;
+  private TTransport trans;
 
-  public TMessage(String n, byte t, int s) {
-    name = n;
-    type = t;
-    seqid = s;
-  }
-
-  public final String name;
-  public final byte type;
-  public final int seqid;
-
-  @Override
-  public String toString() {
-    return "<TMessage name:'" + name + "' type: " + type + " seqid:" + seqid + ">";
+  public ReadCountingTransport(TTransport underlying) {
+    trans = underlying;
   }
 
   @Override
-  public boolean equals(Object other) {
-    if (other instanceof TMessage) {
-      return equals((TMessage) other);
-    }
-    return false;
+  public void close() {}
+
+  @Override
+  public boolean isOpen() {return true;}
+
+  @Override
+  public void open() throws TTransportException {}
+
+  @Override
+  public int read(byte[] buf, int off, int len) throws TTransportException {
+    readCount++;
+    return trans.read(buf, off, len);
   }
 
-  public boolean equals(TMessage other) {
-    return name.equals(other.name) && type == other.type && seqid == other.seqid;
-  }
+  @Override
+  public void write(byte[] buf, int off, int len) throws TTransportException {}
 }
