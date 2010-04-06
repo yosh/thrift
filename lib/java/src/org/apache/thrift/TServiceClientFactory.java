@@ -17,24 +17,29 @@
  * under the License.
  */
 
+package org.apache.thrift;
 
-package org.apache.thrift.protocol;
+import org.apache.thrift.protocol.TProtocol;
 
-import org.apache.thrift.protocol.TCompactProtocol;
-import org.apache.thrift.protocol.TProtocolFactory;
+/**
+ * A TServiceClientFactory provides a general way to get a TServiceClient
+ * connected to a remote TService via a protocol.
+ * @param <T>
+ */
+public interface TServiceClientFactory<T extends TServiceClient> {
+  /**
+   * Get a brand-new T using <i>prot</i> as both the input and output protocol.
+   * @param prot
+   * @return
+   */
+  public T getClient(TProtocol prot);
 
-public class TestTCompactProtocol extends ProtocolTestBase {
-  @Override
-  protected TProtocolFactory getFactory() {
-    return new TCompactProtocol.Factory();
-  }
-
-  @Override
-  protected boolean canBeUsedNaked() {
-    return true;
-  }
-
-  public static void main(String args[]) throws Exception {
-    new TestTCompactProtocol().benchmark();
-  }
+  /**
+   * Get a brand new T using the specified input and output protocols. The
+   * input and output protocols may be the same instance.
+   * @param iprot
+   * @param oprot
+   * @return
+   */
+  public T getClient(TProtocol iprot, TProtocol oprot);
 }

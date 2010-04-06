@@ -17,24 +17,23 @@
  * under the License.
  */
 
+package org.apache.thrift;
 
-package org.apache.thrift.protocol;
+import org.apache.thrift.protocol.TProtocol;
 
-import org.apache.thrift.protocol.TCompactProtocol;
-import org.apache.thrift.protocol.TProtocolFactory;
-
-public class TestTCompactProtocol extends ProtocolTestBase {
-  @Override
-  protected TProtocolFactory getFactory() {
-    return new TCompactProtocol.Factory();
-  }
-
-  @Override
-  protected boolean canBeUsedNaked() {
-    return true;
-  }
-
-  public static void main(String args[]) throws Exception {
-    new TestTCompactProtocol().benchmark();
-  }
+/**
+ * A TServiceClient is used to communicate with a TService implementation
+ * across protocols and transports.
+ */
+public interface TServiceClient {
+  /**
+   * Get the TProtocol being used as the input (read) protocol.
+   * @return
+   */
+  public TProtocol getInputProtocol();
+  /**
+   * Get the TProtocol being used as the output (write) protocol.
+   * @return
+   */
+  public TProtocol getOutputProtocol();
 }
