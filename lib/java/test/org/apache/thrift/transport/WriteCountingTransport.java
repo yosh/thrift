@@ -48,4 +48,9 @@ public class WriteCountingTransport extends TTransport {
     writeCount ++;
     trans.write(buf, off, len);
   }
+
+  @Override
+  public void flush() throws TTransportException {
+    trans.flush();
+  }
 }
