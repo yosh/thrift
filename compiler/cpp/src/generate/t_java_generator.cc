@@ -485,6 +485,7 @@ void t_java_generator::generate_consts(std::vector<t_const*> consts) {
   indent_up();
   vector<t_const*>::iterator c_iter;
   for (c_iter = consts.begin(); c_iter != consts.end(); ++c_iter) {
+    generate_java_doc(f_consts, (*c_iter));
     print_const_value(f_consts,
                       (*c_iter)->get_name(),
                       (*c_iter)->get_type(),
@@ -631,7 +632,7 @@ string t_java_generator::render_const_value(ofstream& out, string name, t_type* 
       throw "compiler error: no const of base type " + t_base_type::t_base_name(tbase);
     }
   } else if (type->is_enum()) {
-    render << type_name(type, false, false) << "." << value->get_identifier();
+    render << value->get_identifier();
   } else {
     string t = tmp("tmp");
     print_const_value(out, t, type, value, true);
@@ -1392,7 +1393,7 @@ void t_java_generator::generate_java_struct_compare_to(ofstream& out, t_struct* 
     indent(out) << "  return lastComparison;" << endl;
     indent(out) << "}" << endl;
 
-    indent(out) << "if (" << generate_isset_check(field) << ") {";
+    indent(out) << "if (" << generate_isset_check(field) << ") {" << endl;
     indent(out) << "  lastComparison = TBaseHelper.compareTo(this." << field->get_name() << ", typedOther." << field->get_name() << ");" << endl;
     indent(out) << "  if (lastComparison != 0) {" << endl;
     indent(out) << "    return lastComparison;" << endl;
@@ -1854,21 +1855,46 @@ void t_java_generator::generate_java_bean_boilerplate(ofstream& out,
 
     // Simple getter
     generate_java_doc(out, field);
-    indent(out) << "public " << type_name(type);
-    if (type->is_base_type() &&
-        ((t_base_type*)type)->get_base() == t_base_type::TYPE_BOOL) {
-      out << " is";
+    if (type->is_base_type() && ((t_base_type*)type)->is_binary()) {
+      indent(out) << "public byte[] get" << cap_name << "() {" << endl;
+      indent(out) << "  set" << cap_name << "(TBaseHelper.rightSize(" << field_name << "));" << endl;
+      indent(out) << "  return " << field_name << ".array();" << endl;
+      indent(out) << "}" << endl << endl;
+
+      indent(out) << "public ByteBuffer " << get_cap_name("bufferFor") << cap_name << "() {" << endl;
+      indent(out) << "  return " << field_name << ";" << endl;
+      indent(out) << "}" << endl << endl;
     } else {
-      out << " get";
+      indent(out) << "public " << type_name(type);
+      if (type->is_base_type() &&
+          ((t_base_type*)type)->get_base() == t_base_type::TYPE_BOOL) {
+        out << " is";
+      } else {
+        out << " get";
+      }
+      out << cap_name << "() {" << endl;
+      indent_up();
+      indent(out) << "return this." << field_name << ";" << endl;
+      indent_down();
+      indent(out) << "}" << endl << endl;
     }
-    out << cap_name << "() {" << endl;
-    indent_up();
-    indent(out) << "return this." << field_name << ";" << endl;
-    indent_down();
-    indent(out) << "}" << endl << endl;
 
     // Simple setter
     generate_java_doc(out, field);
+    if (type->is_base_type() && ((t_base_type*)type)->is_binary()) {
+      indent(out) << "public ";
+      if (bean_style_) {
+        out << "void";
+      } else {
+        out << type_name(tstruct);
+      }
+      out << " set" << cap_name << "(byte[] " << field_name << ") {" << endl;
+      indent(out) << "  set" << cap_name << "(ByteBuffer.wrap(" << field_name << "));" << endl;
+      if (!bean_style_) {
+        indent(out) << "  return this;" << endl;
+      }
+      indent(out) << "}" << endl << endl;
+    }
     indent(out) << "public ";
     if (bean_style_) {
       out << "void";
@@ -3706,14 +3732,12 @@ void t_java_generator::generate_deep_copy_container(ofstream &out, std::string s
 
 void t_java_generator::generate_deep_copy_non_container(ofstream& out, std::string source_name, std::string dest_name, t_type* type) {
   if (type->is_base_type() || type->is_enum() || type->is_typedef()) {
-    // binary fields need to be copied with System.arraycopy
-    if (((t_base_type*)type)->is_binary()){
-      out << "ByteBuffer.wrap(new byte[" << source_name << ".limit() - " << source_name << ".arrayOffset()]);" << endl;
-      indent(out) << "System.arraycopy(" << source_name << ".array(), " << source_name << ".arrayOffset(), " << dest_name << ".array(), 0, " << source_name << ".limit() - " << source_name << ".arrayOffset())";
-    }
-    // everything else can be copied directly
-    else
+    if (((t_base_type*)type)->is_binary()) {
+      out << "TBaseHelper.copyBinary(" << source_name << ");" << endl;
+    } else {
+      // everything else can be copied directly
       out << source_name;
+    }
   } else {
     out << "new " << type_name(type, true, true) << "(" << source_name << ")";
   }

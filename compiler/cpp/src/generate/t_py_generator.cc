@@ -90,6 +90,7 @@ class t_py_generator : public t_generator {
   void generate_py_struct_definition(std::ofstream& out, t_struct* tstruct, bool is_xception=false, bool is_result=false);
   void generate_py_struct_reader(std::ofstream& out, t_struct* tstruct);
   void generate_py_struct_writer(std::ofstream& out, t_struct* tstruct);
+  void generate_py_struct_required_validator(std::ofstream& out, t_struct* tstruct);
   void generate_py_function_helpers(t_function* tfunction);
 
   /**
@@ -323,7 +324,7 @@ string t_py_generator::render_includes() {
 string t_py_generator::render_fastbinary_includes() {
   return
     "from thrift.transport import TTransport\n"
-    "from thrift.protocol import TBinaryProtocol\n"
+    "from thrift.protocol import TBinaryProtocol, TProtocol\n"
     "try:\n"
     "  from thrift.protocol import fastbinary\n"
     "except:\n"
@@ -423,7 +424,7 @@ void t_py_generator::generate_const(t_const* tconst) {
   t_const_value* value = tconst->get_value();
 
   indent(f_consts_) << name << " = " << render_const_value(type, value);
-  f_consts_ << endl << endl;
+  f_consts_ << endl;
 }
 
 /**
@@ -573,7 +574,7 @@ void t_py_generator::generate_py_struct_definition(ofstream& out,
   const vector<t_field*>& sorted_members = tstruct->get_sorted_members();
   vector<t_field*>::const_iterator m_iter;
 
-  out <<
+  out << std::endl <<
     "class " << tstruct->get_name();
   if (is_exception) {
     out << "(Exception)";
@@ -711,8 +712,6 @@ void t_py_generator::generate_py_struct_definition(ofstream& out,
   out <<
     indent() << "return not (self == other)" << endl;
   indent_down();
-  out << endl;
-
   indent_down();
 }
 
@@ -855,9 +854,35 @@ void t_py_generator::generate_py_struct_writer(ofstream& out,
     indent() << "oprot.writeFieldStop()" << endl <<
     indent() << "oprot.writeStructEnd()" << endl;
 
+  generate_py_struct_required_validator(out, tstruct);
+
   indent_down();
   out <<
     endl;
+}
+
+void t_py_generator::generate_py_struct_required_validator(ofstream& out,
+                                               t_struct* tstruct) {
+  indent(out) << "def validate(self):" << endl;
+  indent_up();
+
+  const vector<t_field*>& fields = tstruct->get_members();
+
+  if (fields.size() > 0) {
+    vector<t_field*>::const_iterator f_iter;
+
+    for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
+      t_field* field = (*f_iter);
+      if (field->get_req() == t_field::T_REQUIRED) {
+        indent(out) << "if self." << field->get_name() << " is None:" << endl;
+        indent(out) << "  raise TProtocol.TProtocolException(message='Required field " <<
+          field->get_name() << " is unset!')" << endl;
+      }
+    }
+  }
+
+  indent(out) << "return" << endl << endl;
+  indent_down();
 }
 
 /**
@@ -901,7 +926,6 @@ void t_py_generator::generate_service(t_service* tservice) {
   generate_service_remote(tservice);
 
   // Close service file
-  f_service_ << endl;
   f_service_.close();
 }
 
@@ -915,7 +939,7 @@ void t_py_generator::generate_service_helpers(t_service* tservice) {
   vector<t_function*>::iterator f_iter;
 
   f_service_ <<
-    "# HELPER FUNCTIONS AND STRUCTURES" << endl << endl;
+    "# HELPER FUNCTIONS AND STRUCTURES" << endl;
 
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
     t_struct* ts = (*f_iter)->get_arglist();
@@ -1338,20 +1362,22 @@ void t_py_generator::generate_service_remote(t_service* tservice) {
     "argi = 1" << endl <<
     endl <<
     "if sys.argv[argi] == '-h':" << endl <<
-    "  parts = sys.argv[argi+1].split(':') " << endl <<
+    "  parts = sys.argv[argi+1].split(':')" << endl <<
     "  host = parts[0]" << endl <<
     "  port = int(parts[1])" << endl <<
     "  argi += 2" << endl <<
     endl <<
     "if sys.argv[argi] == '-u':" << endl <<
     "  url = urlparse(sys.argv[argi+1])" << endl <<
-    "  parts = url[1].split(':') " << endl <<
+    "  parts = url[1].split(':')" << endl <<
     "  host = parts[0]" << endl <<
     "  if len(parts) > 1:" << endl <<
     "    port = int(parts[1])" << endl <<
     "  else:" << endl <<
     "    port = 80" << endl <<
     "  uri = url[2]" << endl <<
+    "  if url[4]:" << endl <<
+    "    uri += '?%s' % url[4]" << endl <<
     "  http = True" << endl <<
     "  argi += 2" << endl <<
     endl <<
@@ -1407,6 +1433,10 @@ void t_py_generator::generate_service_remote(t_service* tservice) {
 
     f_remote << endl;
   }
+  f_remote << "else:" << endl;
+  f_remote << "  print 'Unrecognized method %s' % cmd" << endl;
+  f_remote << "  sys.exit(1)" << endl;
+  f_remote << endl;
 
   f_remote << "transport.close()" << endl;
 

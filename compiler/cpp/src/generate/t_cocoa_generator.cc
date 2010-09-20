@@ -179,7 +179,6 @@ class t_cocoa_generator : public t_oop_generator {
   std::string base_type_name(t_base_type* tbase);
   std::string declare_field(t_field* tfield);
   std::string declare_property(t_field* tfield);
-  std::string dynamic_property(t_field* tfield);
   std::string function_signature(t_function* tfunction);
   std::string argument_list(t_struct* tstruct);
   std::string type_to_enum(t_type* ttype);
@@ -717,15 +716,6 @@ void t_cocoa_generator::generate_cocoa_struct_implementation(ofstream &out,
   const vector<t_field*>& members = tstruct->get_members();
   vector<t_field*>::const_iterator m_iter;
 
-  // @dynamic property declarations
-  if (!members.empty()) {
-    out << "#if TARGET_OS_IPHONE || (MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_5)" << endl;
-    for (m_iter = members.begin(); m_iter != members.end(); ++m_iter) {
-      out << indent() << dynamic_property(*m_iter) << endl;
-    }
-    out << "#endif" << endl << endl;
-  }
-
   // initializer with all fields as params
   if (!members.empty()) {
     generate_cocoa_struct_initializer_signature(out, tstruct);
@@ -1159,7 +1149,11 @@ void t_cocoa_generator::generate_cocoa_service_helpers(t_service* tservice) {
 }
 
 string t_cocoa_generator::function_result_helper_struct_type(t_function* tfunction) {
-  return capitalize(tfunction->get_name()) + "_result";
+  if (tfunction->is_oneway()) {
+    return capitalize(tfunction->get_name());
+  } else {
+    return capitalize(tfunction->get_name()) + "_result";
+  }
 }
 
 
@@ -1551,6 +1545,9 @@ void t_cocoa_generator::generate_cocoa_service_server_implementation(ofstream& o
   // generate a process_XXXX method for each service function, which reads args, calls the service, and writes results
   functions = tservice->get_functions();
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
+    if ((*f_iter)->is_oneway()) {
+        continue;
+    }
     out << endl;
     string funname = (*f_iter)->get_name();
     out << indent() << "- (void) process_" << funname << "_withSequenceID: (int32_t) seqID inProtocol: (id<TProtocol>) inProtocol outProtocol: (id<TProtocol>) outProtocol" << endl;
@@ -2332,15 +2329,6 @@ string t_cocoa_generator::declare_property(t_field* tfield) {
     type_name(tfield->get_type()) << " " << tfield->get_name() << ";";
 
   return render.str();
-}
-
-/**
- * Add @dynamic declaration for an Objective-C 2.0 property.
- *
- * @param tfield The field for which to declare a dynamic property
- */
-string t_cocoa_generator::dynamic_property(t_field* tfield) {
-  return "@dynamic " + tfield->get_name() + ";";
 }
 
 /**

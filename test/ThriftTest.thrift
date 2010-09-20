@@ -28,6 +28,7 @@ namespace perl ThriftTest
 namespace csharp Thrift.Test
 namespace js ThriftTest
 namespace st ThriftTest
+namespace * thrift.test
 
 /**
  * Docstring!
@@ -41,6 +42,10 @@ enum Numberz
   SIX,
   EIGHT = 8
 }
+
+const Numberz myNumberz = Numberz.ONE;
+// the following is expected to fail:
+// const Numberz urNumberz = ONE;
 
 typedef i64 UserId
 

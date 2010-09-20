@@ -17,7 +17,7 @@
 # under the License.
 #
 
-ACLOCAL_AMFLAGS = -I ./aclocal
+SUBDIRS = . test
 
 pkgconfigdir = $(libdir)/pkgconfig
 

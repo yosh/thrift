@@ -56,6 +56,11 @@ void integer_overflow(char* text) {
 %option lex-compat
 
 /**
+ * Our inputs are all single files, so no need for yywrap
+ */
+%option noyywrap
+
+/**
  * Helper definitions, comments, constants, and whatnot
  */
 
@@ -336,6 +341,11 @@ literal_begin (['\"])
   }
 }
 
+
+. {
+  /* Catch-all to let us catch "*" in the parser. */
+  return (int) yytext[0];
+}
 
 %%
 
