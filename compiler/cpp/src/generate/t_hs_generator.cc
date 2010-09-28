@@ -201,6 +201,7 @@ void t_hs_generator::init_generator() {
 
 string t_hs_generator::hs_language_pragma() {
   return std::string("{-# LANGUAGE DeriveDataTypeable #-}\n"
+                     "{-# OPTIONS_GHC -fno-warn-missing-fields #-}\n"
                      "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}\n"
                      "{-# OPTIONS_GHC -fno-warn-name-shadowing #-}\n"
                      "{-# OPTIONS_GHC -fno-warn-unused-imports #-}\n"
@@ -232,7 +233,7 @@ string t_hs_generator::hs_imports() {
     result += "\n";
   }
 
-  result += "import Thrift\nimport Data.Typeable ( Typeable )\nimport Control.Exception\nimport qualified Data.Map as Map\nimport qualified Data.Set as Set\nimport Data.Int;\nimport Prelude ((==), String, Eq, Show, Ord, Maybe(..), (&&), (||), return, IO, Enum, fromEnum, toEnum, Bool(..), (++), ($), Double, (-))";
+  result += "import Thrift\nimport Data.Typeable ( Typeable )\nimport Control.Exception\nimport qualified Data.Map as Map\nimport qualified Data.Set as Set\nimport Data.ByteString.Lazy\nimport Data.Int\nimport Data.Word\nimport Prelude ((==), String, Eq, Show, Ord, Maybe(..), (&&), (||), return, IO, Enum, fromIntegral, fromEnum, toEnum, Bool(..), (++), ($), Double, (-), length)";
   return result;
 }
 
@@ -278,36 +279,23 @@ void t_hs_generator::generate_enum(t_enum* tenum) {
   indent(f_types_) << "deriving (Show,Eq, Typeable, Ord)" << endl;
   indent_down();
 
-  int value = -1;
   indent(f_types_) << "instance Enum " << capitalize(tenum->get_name()) << " where" << endl;
   indent_up();
   indent(f_types_) << "fromEnum t = case t of" << endl;
   indent_up();
   for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-    if ((*c_iter)->has_value()) {
-      value = (*c_iter)->get_value();
-    } else {
-      ++value;
-    }
+    int value = (*c_iter)->get_value();
     string name = capitalize((*c_iter)->get_name());
-
-    f_types_ <<
-      indent() << name << " -> " << value << endl;
+    indent(f_types_) << name << " -> " << value << endl;
   }
   indent_down();
 
   indent(f_types_) << "toEnum t = case t of" << endl;
   indent_up();
   for(c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-    if ((*c_iter)->has_value()) {
-      value = (*c_iter)->get_value();
-    } else {
-      ++value;
-    }
+    int value = (*c_iter)->get_value();
     string name = capitalize((*c_iter)->get_name());
-
-    f_types_ <<
-      indent() << value << " -> " << name << endl;
+    indent(f_types_) << value << " -> " << name << endl;
   }
   indent(f_types_) << "_ -> throw ThriftException" << endl;
   indent_down();
@@ -337,18 +325,31 @@ string t_hs_generator::render_const_value(t_type* type, t_const_value* value) {
   if (type->is_base_type()) {
     t_base_type::t_base tbase = ((t_base_type*)type)->get_base();
     switch (tbase) {
+
     case t_base_type::TYPE_STRING:
       out << '"' << get_escaped_string(value) << '"';
       break;
+
     case t_base_type::TYPE_BOOL:
       out << (value->get_integer() > 0 ? "True" : "False");
       break;
+
     case t_base_type::TYPE_BYTE:
-    case t_base_type::TYPE_I16:
-    case t_base_type::TYPE_I32:
-    case t_base_type::TYPE_I64:
-      out << value->get_integer();
+      out << "(" << value->get_integer() << " :: Word8)";
       break;
+
+    case t_base_type::TYPE_I16:
+      out << "(" << value->get_integer() << " :: Int16)";
+      break;
+
+    case t_base_type::TYPE_I32:
+      out << "(" << value->get_integer() << " :: Int32)";
+      break;
+
+    case t_base_type::TYPE_I64:
+      out << "(" << value->get_integer() << " :: Int64)";
+      break;
+
     case t_base_type::TYPE_DOUBLE:
       if (value->get_type() == t_const_value::CV_INTEGER) {
         out << value->get_integer();
@@ -363,14 +364,9 @@ string t_hs_generator::render_const_value(t_type* type, t_const_value* value) {
     t_enum* tenum = (t_enum*)type;
     vector<t_enum_value*> constants = tenum->get_constants();
     vector<t_enum_value*>::iterator c_iter;
-    int val = -1;
     for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-      if ((*c_iter)->has_value()) {
-        val = (*c_iter)->get_value();
-      } else {
-        ++val;
-      }
-      if(val == value->get_integer()){
+      int val = (*c_iter)->get_value();
+      if (val == value->get_integer()) {
         indent(out) << capitalize((*c_iter)->get_name());
         break;
       }
@@ -529,14 +525,14 @@ void t_hs_generator::generate_hs_struct_reader(ofstream& out, t_struct* tstruct)
   string t = tmp("_t");
   string id = tmp("_id");
 
-  indent(out) << "read_" << sname << "_fields iprot rec = do" << endl;
+  indent(out) << "read_" << sname << "_fields iprot record = do" << endl;
   indent_up(); // do
 
   // Read beginning field marker
   indent(out) << "(_," << t <<","<<id<<") <- readFieldBegin iprot" << endl;
   // Check for field STOP marker and break
   indent(out) <<
-    "if " << t <<" == T_STOP then return rec else" << endl;
+    "if " << t <<" == T_STOP then return record else" << endl;
   indent_up(); // if
   indent(out) << "case " << id<<" of " << endl;
   indent_up(); // case
@@ -548,12 +544,12 @@ void t_hs_generator::generate_hs_struct_reader(ofstream& out, t_struct* tstruct)
     indent(out) << "s <- ";
     generate_deserialize_field(out, *f_iter,str);
     out << endl;
-    indent(out) << "read_"<<sname<<"_fields iprot rec{f_"<<sname<<"_"<< decapitalize((*f_iter)->get_name()) <<"=Just s}" << endl;
+    indent(out) << "read_"<<sname<<"_fields iprot record{f_"<<sname<<"_"<< decapitalize((*f_iter)->get_name()) <<"=Just s}" << endl;
     out <<
       indent() << "else do" << endl;
     indent_up();
     indent(out) << "skip iprot "<< t << endl;
-    indent(out) << "read_"<<sname<<"_fields iprot rec" << endl;
+    indent(out) << "read_"<<sname<<"_fields iprot record" << endl;
     indent_down(); // -do
     indent_down(); // -if
   }
@@ -565,7 +561,7 @@ void t_hs_generator::generate_hs_struct_reader(ofstream& out, t_struct* tstruct)
   indent_up();
   indent(out) << "skip iprot "<<t<< endl;
   indent(out) << "readFieldEnd iprot" << endl;
-  indent(out) << "read_"<<sname<<"_fields iprot rec" << endl;
+  indent(out) << "read_"<<sname<<"_fields iprot record" << endl;
   indent_down(); // -case
   indent_down(); // -if
   indent_down(); // -do
@@ -575,7 +571,7 @@ void t_hs_generator::generate_hs_struct_reader(ofstream& out, t_struct* tstruct)
   indent(out) << "read_"<<sname<<" iprot = do" << endl;
   indent_up();
   indent(out) << "_ <- readStructBegin iprot" << endl;
-  indent(out) << "rec <- read_"<<sname<<"_fields iprot ("<<sname<<"{";
+  indent(out) << "record <- read_"<<sname<<"_fields iprot ("<<sname<<"{";
   bool first = true;
   for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
     if(first)
@@ -586,7 +582,7 @@ void t_hs_generator::generate_hs_struct_reader(ofstream& out, t_struct* tstruct)
   }
   out << "})" << endl;
   indent(out) << "readStructEnd iprot" << endl;
-  indent(out) << "return rec" << endl;
+  indent(out) << "return record" << endl;
   indent_down();
 }
 
@@ -599,7 +595,7 @@ void t_hs_generator::generate_hs_struct_writer(ofstream& out,
   string f = tmp("_f");
 
   indent(out) <<
-    "write_"<<name<<" oprot rec = do" << endl;
+    "write_"<<name<<" oprot record = do" << endl;
   indent_up();
   indent(out) <<
     "writeStructBegin oprot \""<<name<<"\"" << endl;
@@ -607,7 +603,7 @@ void t_hs_generator::generate_hs_struct_writer(ofstream& out,
     // Write field header
     string mname = (*f_iter)->get_name();
     indent(out) <<
-      "case f_" << name << "_" << mname << " rec of {Nothing -> return (); Just _v -> do" << endl;
+      "case f_" << name << "_" << mname << " record of {Nothing -> return (); Just _v -> do" << endl;
     indent_up();
     indent(out) << "writeFieldBegin oprot (\""<< (*f_iter)->get_name()<<"\","
                 <<type_to_enum((*f_iter)->get_type())<<","
@@ -773,9 +769,9 @@ void t_hs_generator::generate_service_client(t_service* tservice) {
     else
       exports+=",";
     string funname = (*f_iter)->get_name();
-    exports+=funname;
+    exports += decapitalize(funname);
   }
-  indent(f_client_) << "module " << capitalize(service_name_) << "_Client("<<exports<<") where" << endl;
+  indent(f_client_) << "module " << capitalize(service_name_) << "_Client(" << exports << ") where" << endl;
 
   if (tservice->get_extends() != NULL) {
     extends = type_name(tservice->get_extends());
@@ -803,7 +799,7 @@ void t_hs_generator::generate_service_client(t_service* tservice) {
     }
 
     // Open function
-    indent(f_client_) << funname << " (ip,op)" <<  fargs << " = do" << endl;
+    indent(f_client_) << decapitalize(funname) << " (ip,op)" <<  fargs << " = do" << endl;
     indent_up();
     indent(f_client_) <<  "send_" << funname << " op" << fargs;
 
@@ -936,7 +932,7 @@ void t_hs_generator::generate_service_server(t_service* tservice) {
   }
 
 
-  indent(f_service_) << "proc handler (iprot,oprot) (name,typ,seqid) = case name of" << endl;
+  indent(f_service_) << "proc_ handler (iprot,oprot) (name,typ,seqid) = case name of" << endl;
   indent_up();
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
     string fname = (*f_iter)->get_name();
@@ -944,7 +940,7 @@ void t_hs_generator::generate_service_server(t_service* tservice) {
   }
   indent(f_service_) << "_ -> ";
   if(tservice->get_extends() != NULL){
-    f_service_ << type_name(tservice->get_extends()) << ".proc handler (iprot,oprot) (name,typ,seqid)" << endl;
+    f_service_ << type_name(tservice->get_extends()) << ".proc_ handler (iprot,oprot) (name,typ,seqid)" << endl;
   } else {
     f_service_ << "do" << endl;
     indent_up();
@@ -965,7 +961,7 @@ void t_hs_generator::generate_service_server(t_service* tservice) {
 
   f_service_ <<
     indent() << "(name, typ, seqid) <- readMessageBegin iprot" << endl;
-  f_service_ << indent() << "proc handler (iprot,oprot) (name,typ,seqid)" << endl;
+  f_service_ << indent() << "proc_ handler (iprot,oprot) (name,typ,seqid)" << endl;
   indent(f_service_) << "return True" << endl;
   indent_down();
 
@@ -980,7 +976,7 @@ void t_hs_generator::generate_process_function(t_service* tservice,
                                                t_function* tfunction) {
   // Open function
   indent(f_service_) <<
-    "process_" << tfunction->get_name() << " (seqid, iprot, oprot, handler) = do" << endl;
+    "process_" << decapitalize(tfunction->get_name()) << " (seqid, iprot, oprot, handler) = do" << endl;
   indent_up();
 
   string argsname = capitalize(tfunction->get_name()) + "_args";
@@ -1029,7 +1025,7 @@ void t_hs_generator::generate_process_function(t_service* tservice,
   if (!tfunction->is_oneway() && !tfunction->get_returntype()->is_void()){
     f_service_ << "res <- ";
   }
-  f_service_ << "Iface." << tfunction->get_name() << " handler";
+  f_service_ << "Iface." << decapitalize(tfunction->get_name()) << " handler";
   for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
     f_service_ <<  " (f_" << argsname <<  "_" << (*f_iter)->get_name() << " args)";
   }
@@ -1116,7 +1112,7 @@ void t_hs_generator::generate_deserialize_type(ofstream &out,
       throw "compiler error: cannot serialize void field in a struct";
       break;
     case t_base_type::TYPE_STRING:
-      out << "readString";
+      out << (((t_base_type*)type)->is_binary() ? "readBinary" : "readString");
       break;
     case t_base_type::TYPE_BOOL:
       out << "readBool";
@@ -1142,7 +1138,7 @@ void t_hs_generator::generate_deserialize_type(ofstream &out,
     out << " iprot";
   } else if (type->is_enum()) {
     string ename = capitalize(type->get_name());
-    out << "(do {i <- readI32 iprot; return (toEnum i :: " << ename << ")})";
+    out << "(do {i <- readI32 iprot; return $ toEnum $ fromIntegral i})";
   } else {
     printf("DO NOT KNOW HOW TO DESERIALIZE TYPE '%s'\n",
            type->get_name().c_str());
@@ -1234,7 +1230,7 @@ void t_hs_generator::generate_serialize_field(ofstream &out,
           "compiler error: cannot serialize void field in a struct: " + name;
         break;
       case t_base_type::TYPE_STRING:
-        out << "writeString oprot " << name;
+        out << (((t_base_type*)type)->is_binary() ? "writeBinary" : "writeString") << " oprot " << name;
         break;
       case t_base_type::TYPE_BOOL:
         out << "writeBool oprot " << name;
@@ -1260,7 +1256,7 @@ void t_hs_generator::generate_serialize_field(ofstream &out,
 
     } else if (type->is_enum()) {
       string ename = capitalize(type->get_name());
-      out << "writeI32 oprot (fromEnum "<< name << ")";
+      out << "writeI32 oprot (fromIntegral $ fromEnum "<< name << ")";
     }
 
   } else {
@@ -1290,17 +1286,17 @@ void t_hs_generator::generate_serialize_container(ofstream &out,
     string v = tmp("_viter");
     out << "(let {f [] = return (); f (("<<k<<","<<v<<"):t) = do {";
     generate_serialize_map_element(out, (t_map*)ttype, k, v);
-    out << ";f t}} in do {writeMapBegin oprot ("<< type_to_enum(((t_map*)ttype)->get_key_type())<<","<< type_to_enum(((t_map*)ttype)->get_val_type())<<",Map.size " << prefix << "); f (Map.toList " << prefix << ");writeMapEnd oprot})";
+    out << ";f t}} in do {writeMapBegin oprot ("<< type_to_enum(((t_map*)ttype)->get_key_type())<<","<< type_to_enum(((t_map*)ttype)->get_val_type())<<",fromIntegral $ Map.size " << prefix << "); f (Map.toList " << prefix << ");writeMapEnd oprot})";
   } else if (ttype->is_set()) {
     string v = tmp("_viter");
     out << "(let {f [] = return (); f ("<<v<<":t) = do {";
     generate_serialize_set_element(out, (t_set*)ttype, v);
-    out << ";f t}} in do {writeSetBegin oprot ("<< type_to_enum(((t_set*)ttype)->get_elem_type())<<",Set.size " << prefix << "); f (Set.toList " << prefix << ");writeSetEnd oprot})";
+    out << ";f t}} in do {writeSetBegin oprot ("<< type_to_enum(((t_set*)ttype)->get_elem_type())<<",fromIntegral $ Set.size " << prefix << "); f (Set.toList " << prefix << ");writeSetEnd oprot})";
   } else if (ttype->is_list()) {
     string v = tmp("_viter");
     out << "(let {f [] = return (); f ("<<v<<":t) = do {";
     generate_serialize_list_element(out, (t_list*)ttype, v);
-    out << ";f t}} in do {writeListBegin oprot ("<< type_to_enum(((t_list*)ttype)->get_elem_type())<<",length " << prefix << "); f " << prefix << ";writeListEnd oprot})";
+    out << ";f t}} in do {writeListBegin oprot ("<< type_to_enum(((t_list*)ttype)->get_elem_type())<<",fromIntegral $ Prelude.length " << prefix << "); f " << prefix << ";writeListEnd oprot})";
   }
 
 }
@@ -1434,15 +1430,15 @@ string t_hs_generator::render_hs_type(t_type* type, bool needs_parens) {
     case t_base_type::TYPE_VOID:
       return "()";
     case t_base_type::TYPE_STRING:
-      return "String";
+      return (((t_base_type*)type)->is_binary() ? "ByteString" : "String");
     case t_base_type::TYPE_BOOL:
       return "Bool";
     case t_base_type::TYPE_BYTE:
-      return "Int";
+      return "Word8";
     case t_base_type::TYPE_I16:
-      return "Int";
+      return "Int16";
     case t_base_type::TYPE_I32:
-      return "Int";
+      return "Int32";
     case t_base_type::TYPE_I64:
       return "Int64";
     case t_base_type::TYPE_DOUBLE:
